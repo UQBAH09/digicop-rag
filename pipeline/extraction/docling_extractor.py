@@ -42,6 +42,58 @@ class DoclingExtractor(BaseExtractor):
 
         self.logger = logging.getLogger(__name__)
 
+    def _remove_headers_footers(self, pages: list[Page], book_id: str) -> list[Page]:
+        """Remove repeated text that appears on >threshold of pages (running headers/footers)."""
+        if len(pages) < 3:
+            return pages  # too few pages to detect repetition
+
+        # Count how often each normalized text appears across pages
+        from collections import Counter
+        text_counts: Counter[str] = Counter()
+
+        for page in pages:
+            # Use a set so the same text on one page counts once
+            seen_on_page: set[str] = set()
+            for e in page.elements:
+                normalized = e.content.strip().lower()
+                if normalized and normalized not in seen_on_page:
+                    text_counts[normalized] += 1
+                    seen_on_page.add(normalized)
+
+        # Find texts that appear on more than threshold of pages
+        threshold = extractor_settings.header_footer_repetition_threshold
+        min_count = max(2, int(len(pages) * threshold))
+        repeated = {text for text, count in text_counts.items() if count >= min_count}
+
+        if not repeated:
+            return pages
+
+        # Remove matching elements from all pages
+        cleaned_pages: list[Page] = []
+        total_dropped = 0
+
+        for page in pages:
+            filtered = []
+            for e in page.elements:
+                if e.content.strip().lower() in repeated:
+                    total_dropped += 1
+                else:
+                    filtered.append(e)
+
+            cleaned_pages.append(Page(
+                page_no=page.page_no,
+                elements=filtered,
+                source=page.source,
+                lang=page.lang,
+                char_count=sum(len(e.content) for e in filtered)
+            ))
+
+        for text in repeated:
+            self.logger.info(f"{book_id} | Dropped repeated header/footer: '{text}'")
+        self.logger.info(f"{book_id} | Total elements dropped: {total_dropped}")
+
+        return cleaned_pages
+
     def extract(self, pdf_path: str, meta: BookMeta) -> Document:
         if meta.lang == "ur":
             raise UnsupportedLanguageError("DoclingExtractor does not support Urdu.")
@@ -166,6 +218,8 @@ class DoclingExtractor(BaseExtractor):
             f"{meta.book_id} | {len(pages)} pages | "
             f"{sum(len(p.elements) for p in pages)} elements"
         )
+
+        pages = self._remove_headers_footers(pages, meta.book_id)
 
         document = Document(
             meta=meta,
