@@ -1,15 +1,25 @@
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import InputFormat
-from docling.datamodel.pipeline_options import (
-    PdfPipelineOptions,
-    TesseractCliOcrOptions,
-    TableStructureOptions,
-)
+from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions ,TableStructureOptions
+import pymupdf
+import tempfile
+import time
+import logging
+from pathlib import Path
 
 from shared.config import extractor_settings
 from pipeline.extraction.base import BaseExtractor, UnsupportedLanguageError
 from shared.models import Element, Page, BookMeta, Document
 class DoclingExtractor(BaseExtractor):
+    LABEL_MAP = {
+            "text": "text",
+            "list_item": "text",
+            "section_header": "heading",
+            "table": "table",
+            "formula": "equation",
+            "picture": "figure",
+        }
+    
     def __init__(self):
         opts = PdfPipelineOptions()
 
@@ -28,78 +38,103 @@ class DoclingExtractor(BaseExtractor):
             format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)}
         )
 
+        self.logger = logging.getLogger(__name__)
+
     def extract(self, pdf_path: str, meta: BookMeta) -> Document:
         if meta.lang == "ur":
             raise UnsupportedLanguageError("DoclingExtractor does not support Urdu.")
-        
-        result = self.converter.convert(str(pdf_path))
-        doc = result.document
 
-        LABEL_MAP = {
-            "text": "text",
-            "list_item": "text",
-            "section_header": "heading",
-            "table": "table",
-            "formula": "equation",
-            "picture": "figure",
-        }
+        # Count total pages
+        with pymupdf.open(str(pdf_path)) as src:
+            total_pages = src.page_count
 
-        pages_dict: dict[int, list[Element]] = {}
-        # Track the last table/picture element so we can attach its caption
-        last_noncaption_element: Element | None = None
+            pages: list[Page] = []
 
-        for item, level in doc.iterate_items():
-            page_no = item.prov[0].page_no if item.prov else 1
+            for page_idx in range(total_pages):
+                page_no = page_idx + 1
+                start = time.time()
 
-            # Captions are separate items — attach to the previous table/figure
-            if item.label == "caption":
-                if last_noncaption_element and last_noncaption_element.type in ("table", "figure"):
-                    # Prefix the caption to the existing content
-                    caption_text = item.text or ""
-                    if last_noncaption_element.content:
-                        last_noncaption_element.content = caption_text + "\n\n" + last_noncaption_element.content
-                    else:
-                        last_noncaption_element.content = caption_text
-                continue
+                tmp_path = None
+                try:
+                    # Extract single page to a temp PDF
+                    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+                        single = pymupdf.open()
+                        single.insert_pdf(src, from_page=page_idx, to_page=page_idx)
+                        single.save(tmp.name)
+                        single.close()
+                        tmp_path = tmp.name
 
-            element_type = LABEL_MAP.get(item.label)
-            if element_type is None:
-                continue
+                    # Convert the single-page PDF
+                    result = self.converter.convert(tmp_path)
+                    doc_result = result.document
 
-            if element_type == "heading":
-                prefix = "# " if level == 1 else "## "
-                element = Element(type="heading", content=prefix + item.text)
+                    # Walk items and build elements
+                    elements: list[Element] = []
+                    last_noncaption: Element | None = None
 
-            elif element_type == "table":
-                md = item.export_to_markdown()
-                element = Element(type="table", content=md)
+                    for item, level in doc_result.iterate_items():
+                        if item.label == "caption":
+                            if last_noncaption and last_noncaption.type in ("table", "figure"):
+                                caption_text = item.text or ""
+                                if caption_text and caption_text not in last_noncaption.content:
+                                    if last_noncaption.content:
+                                        last_noncaption.content = caption_text + "\n\n" + last_noncaption.content
+                                    else:
+                                        last_noncaption.content = caption_text
+                            continue
 
-            elif element_type == "equation":
-                element = Element(type="equation", content=item.text)
+                        element_type = LABEL_MAP.get(item.label)
+                        if element_type is None:
+                            continue
 
-            elif element_type == "figure":
-                element = Element(type="figure", content="")
+                        if element_type == "heading":
+                            prefix = "# " if level == 1 else "## "
+                            element = Element(type="heading", content=prefix + item.text)
+                        elif element_type == "table":
+                            md = item.export_to_markdown(doc_result)
+                            element = Element(type="table", content=md)
+                        elif element_type == "equation":
+                            element = Element(type="equation", content=item.text)
+                        elif element_type == "figure":
+                            element = Element(type="figure", content="")
+                        else:
+                            element = Element(type="text", content=item.text)
 
-            else:
-                element = Element(type="text", content=item.text)
+                        last_noncaption = element
+                        elements.append(element)
 
-            last_noncaption_element = element
+                    char_count = sum(len(e.content) for e in elements)
+                    pages.append(Page(
+                        page_no=page_no,
+                        elements=elements,
+                        source="ocr",
+                        lang=meta.lang,
+                        char_count=char_count
+                    ))
 
-            if page_no not in pages_dict:
-                pages_dict[page_no] = []
-            pages_dict[page_no].append(element)
+                    elapsed = time.time() - start
+                    print(f"  [{page_no}/{total_pages}] {len(elements)} elements, {char_count} chars ({elapsed:.1f}s)")
 
-        pages: list[Page] = []
-        for page in sorted(pages_dict.keys()):
-            elements = pages_dict[page]
-            char_count = sum(len(e.content) for e in elements)
-            pages.append(Page(
-                page_no=page,
-                elements=elements,
-                source="ocr",
-                lang=meta.lang,
-                char_count=char_count
-            ))
+                except Exception as e:
+                    # One bad page must never kill the book
+                    pages.append(Page(
+                        page_no=page_no,
+                        elements=[],
+                        source="ocr",
+                        lang=meta.lang,
+                        char_count=0
+                    ))
+                    self.logger.error(f"{meta.book_id} | page {page_no} FAILED: {e}")
+                    print(f"  [{page_no}/{total_pages}] FAILED: {e}")
+
+                finally:
+                    if tmp_path:
+                        Path(tmp_path).unlink(missing_ok=True)
+
+        self.logger.info(
+            f"{meta.book_id} | {len(pages)} pages | "
+            f"{sum(len(p.elements) for p in pages)} elements"
+        )
 
         return Document(
             meta=meta,
