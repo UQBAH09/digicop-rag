@@ -19,7 +19,7 @@ class DoclingExtractor(BaseExtractor):
         "section_header": "heading",
         "table": "table",
         "formula": "equation",
-        "picture": "figure",
+        # "picture": "figure",
     }
     
     def __init__(self):
@@ -124,18 +124,18 @@ class DoclingExtractor(BaseExtractor):
 
                     # Walk items and build elements
                     elements: list[Element] = []
-                    last_noncaption: Element | None = None
+                    # last_noncaption: Element | None = None
 
                     for item, level in doc_result.iterate_items():
-                        if item.label == "caption":
-                            if last_noncaption and last_noncaption.type in ("table", "figure"):
-                                caption_text = item.text or ""
-                                if caption_text and caption_text not in last_noncaption.content:
-                                    if last_noncaption.content:
-                                        last_noncaption.content = caption_text + "\n\n" + last_noncaption.content
-                                    else:
-                                        last_noncaption.content = caption_text
-                            continue
+                        # if item.label == "caption":
+                        #     if last_noncaption and last_noncaption.type in ("table", "figure"):
+                        #         caption_text = item.text or ""
+                        #         if caption_text and caption_text not in last_noncaption.content:
+                        #             if last_noncaption.content:
+                        #                 last_noncaption.content = caption_text + "\n\n" + last_noncaption.content
+                        #             else:
+                        #                 last_noncaption.content = caption_text
+                        #     continue
 
                         element_type = self.LABEL_MAP.get(item.label)
                         if element_type is None:
@@ -149,41 +149,41 @@ class DoclingExtractor(BaseExtractor):
                             element = Element(type="table", content=md)
                         elif element_type == "equation":
                             element = Element(type="equation", content=item.text)
-                        elif element_type == "figure":
-                            image_path = None
-                            if item.prov:
-                                try:
-                                    prov = item.prov[0]
-                                    bbox = prov.bbox
-                                    page_obj = src[page_idx]
-                                    page_height = page_obj.rect.height
+                        # elif element_type == "figure":
+                        #     image_path = None
+                        #     if item.prov:
+                        #         try:
+                        #             prov = item.prov[0]
+                        #             bbox = prov.bbox
+                        #             page_obj = src[page_idx]
+                        #             page_height = page_obj.rect.height
 
-                                    x0, y0 = bbox.l, page_height - bbox.t
-                                    x1, y1 = bbox.r, page_height - bbox.b
-                                    width, height = abs(x1 - x0), abs(y1 - y0)
+                        #             x0, y0 = bbox.l, page_height - bbox.t
+                        #             x1, y1 = bbox.r, page_height - bbox.b
+                        #             width, height = abs(x1 - x0), abs(y1 - y0)
 
-                                    if width >= extractor_settings.min_figure_size_px and height >= extractor_settings.min_figure_size_px:
-                                        fig_dir = Path(extractor_settings.data_root) / "figures" / meta.book_id
-                                        fig_dir.mkdir(parents=True, exist_ok=True)
-                                        fig_count = sum(1 for e in elements if e.type == "figure")
-                                        fig_filename = f"p{page_no}_{fig_count}.png"
+                        #             if width >= extractor_settings.min_figure_size_px and height >= extractor_settings.min_figure_size_px:
+                        #                 fig_dir = Path(extractor_settings.data_root) / "figures" / meta.book_id
+                        #                 fig_dir.mkdir(parents=True, exist_ok=True)
+                        #                 fig_count = sum(1 for e in elements if e.type == "figure")
+                        #                 fig_filename = f"p{page_no}_{fig_count}.png"
 
-                                        pixmap = page_obj.get_pixmap(dpi=150)
-                                        img = Image.open(io.BytesIO(pixmap.tobytes("png")))
-                                        scale = 150 / 72
-                                        crop = img.crop((x0 * scale, y0 * scale, x1 * scale, y1 * scale))
-                                        crop.save(str(fig_dir / fig_filename))
-                                        image_path = f"figures/{meta.book_id}/{fig_filename}"
-                                    else:
-                                        continue  # skip tiny decorative images entirely
-                                except Exception as e:
-                                    self.logger.warning(f"Could not save figure on page {page_no}: {e}")
+                        #                 pixmap = page_obj.get_pixmap(dpi=150)
+                        #                 img = Image.open(io.BytesIO(pixmap.tobytes("png")))
+                        #                 scale = 150 / 72
+                        #                 crop = img.crop((x0 * scale, y0 * scale, x1 * scale, y1 * scale))
+                        #                 crop.save(str(fig_dir / fig_filename))
+                        #                 image_path = f"figures/{meta.book_id}/{fig_filename}"
+                        #             else:
+                        #                 continue  # skip tiny decorative images entirely
+                        #         except Exception as e:
+                        #             self.logger.warning(f"Could not save figure on page {page_no}: {e}")
 
-                            element = Element(type="figure", content="", image_path=image_path)
+                        #     element = Element(type="figure", content="", image_path=image_path)
                         else:
                             element = Element(type="text", content=item.text)
 
-                        last_noncaption = element
+                        # last_noncaption = element
                         elements.append(element)
 
                     char_count = sum(len(e.content) for e in elements)
