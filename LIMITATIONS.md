@@ -66,3 +66,23 @@ observed on the 101-page test run.
 Tested with Docling's Tesseract CLI backend. The `export_to_markdown(doc)` API
 requires the document reference — omitting it triggers a deprecation warning.
 PictureItem.image returns None; figure crops use PyMuPDF rendering instead.
+
+
+### Figures (disabled in v1)
+
+The DoclingExtractor v1 does not extract figures. The implementation
+is complete and verified (bbox-based cropping via PyMuPDF, min-size
+filtering at 50px to skip decorative marks, caption attachment to the
+preceding figure element) but is disabled via configuration to reduce
+v1 complexity. Docling correctly *detects* figures — the 101-page
+Physics XI extraction identified 107 figure regions — but they are
+not cropped, saved, or emitted as `figure` Elements in the current
+output. Subjects most affected: Biology (diagrams of cells, organs,
+processes), Maths (geometric figures, graphs), Geography (maps,
+satellite imagery), Physics (apparatus diagrams beyond what
+appears in captions). Re-enabling is a one-line configuration
+change. The gating decision is product-side: figures only become
+*retrievable* once a vision-model description stage is added to
+the pipeline, since text-embedding models cannot embed pixels.
+Until that stage exists, even re-enabled figures would only be
+findable via their captions, which is a partial solution.

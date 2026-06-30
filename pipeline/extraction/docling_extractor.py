@@ -43,34 +43,27 @@ class DoclingExtractor(BaseExtractor):
         self.logger = logging.getLogger(__name__)
 
     def _remove_headers_footers(self, pages: list[Page], book_id: str) -> list[Page]:
-        """Remove repeated chapter headings (running headers).
-        
-        If a chapter heading (# Unit X / # Chapter X) appears on multiple pages,
-        only the first occurrence is the real heading — the rest are running headers.
-        """
         import re
 
-        # Track which chapter headings we've already seen
-        seen_chapter_headings: set[str] = set()
+        seen_chapter_keys: set[str] = set()
         cleaned_pages: list[Page] = []
         total_dropped = 0
 
         for page in pages:
             filtered = []
             for e in page.elements:
-                # Only check chapter-level headings (# Unit/Chapter)
                 if e.type == "heading" and e.content.startswith("# "):
                     heading_text = re.sub(r'^#+\s*', '', e.content).strip().lower()
                     
-                    # Is this a chapter heading pattern?
-                    if re.match(r'^(unit|chapter)\s+\d+', heading_text):
-                        if heading_text in seen_chapter_headings:
-                            # Duplicate — this is a running header, drop it
+                    # Match just "unit X" or "chapter X", ignore garbled text after
+                    match = re.match(r'^(unit|chapter)\s+\d+', heading_text)
+                    if match:
+                        key = match.group(0)  # e.g. "unit 1", "unit 4"
+                        if key in seen_chapter_keys:
                             total_dropped += 1
                             continue
                         else:
-                            # First time seeing it — keep it
-                            seen_chapter_headings.add(heading_text)
+                            seen_chapter_keys.add(key)
 
                 filtered.append(e)
 
@@ -84,8 +77,64 @@ class DoclingExtractor(BaseExtractor):
 
         if total_dropped > 0:
             self.logger.info(f"{book_id} | Dropped {total_dropped} running chapter headers")
-        
+
         return cleaned_pages
+    
+    def _infer_missing_sections(self, pages: list[Page], book_id: str) -> list[Page]:
+        """If subsection X.Y.Z appears without section X.Y, insert X.Y heading."""
+        import re
+
+        seen_sections: set[str] = set()
+        inferred_count = 0
+
+        # First pass: collect all existing section numbers
+        for page in pages:
+            for e in page.elements:
+                if e.type == "heading" and e.content.startswith("## "):
+                    heading_text = re.sub(r'^#+\s*', '', e.content).strip()
+                    match = re.match(r'^(\d+\.\d+)', heading_text)
+                    if match:
+                        seen_sections.add(match.group(1))
+
+        # Second pass: check all text elements for subsection patterns
+        # that imply a missing parent section
+        patched_pages: list[Page] = []
+
+        for page in pages:
+            new_elements: list[Element] = []
+            for e in page.elements:
+                # Check if this is a subsection (X.Y.Z) demoted to text
+                if e.type == "text":
+                    match = re.match(r'^(\d+)\.(\d+)\.(\d+)', e.content.strip())
+                    if match:
+                        parent = f"{match.group(1)}.{match.group(2)}"
+                        if parent not in seen_sections:
+                            # Insert the missing section heading
+                            new_elements.append(Element(
+                                type="heading",
+                                content=f"## {parent}"
+                            ))
+                            seen_sections.add(parent)
+                            inferred_count += 1
+                            self.logger.info(
+                                f"{book_id} | Inferred missing section: ## {parent} "
+                                f"(from subsection {match.group(0)} on page {page.page_no})"
+                            )
+
+                new_elements.append(e)
+
+            patched_pages.append(Page(
+                page_no=page.page_no,
+                elements=new_elements,
+                source=page.source,
+                lang=page.lang,
+                char_count=sum(len(el.content) for el in new_elements)
+            ))
+
+        if inferred_count > 0:
+            self.logger.info(f"{book_id} | Total inferred sections: {inferred_count}")
+
+        return patched_pages
 
     @staticmethod
     def _classify_heading(text: str) -> str | None:
@@ -236,6 +285,7 @@ class DoclingExtractor(BaseExtractor):
         )
 
         pages = self._remove_headers_footers(pages, meta.book_id)
+        pages = self._infer_missing_sections(pages, meta.book_id)
 
         document = Document(
             meta=meta,
