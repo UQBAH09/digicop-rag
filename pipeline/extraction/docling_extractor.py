@@ -148,7 +148,10 @@ class DoclingExtractor(BaseExtractor):
                             md = item.export_to_markdown(doc_result)
                             element = Element(type="table", content=md)
                         elif element_type == "equation":
-                            element = Element(type="equation", content=item.text)
+                            eq_text = item.text.strip() if item.text else ""
+                            if not eq_text:
+                                continue  # skip empty equations (no formula enrichment)
+                            element = Element(type="equation", content=eq_text)
                         # elif element_type == "figure":
                         #     image_path = None
                         #     if item.prov:
