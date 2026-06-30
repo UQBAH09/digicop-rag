@@ -238,6 +238,7 @@ def chunk(
             content=data["content"],
             element_type=data["element_type"],
             book_id=meta.book_id,
+            client_id=meta.client_id,
             subject=meta.subject,
             grade=meta.grade,
             board=meta.board,

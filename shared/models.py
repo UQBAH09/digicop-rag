@@ -87,6 +87,7 @@ class BookMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     book_id: str
+    client_id: str
     title: str
     subject: str
     grade: str
@@ -142,6 +143,7 @@ class Chunk(BaseModel):
 
     # --- book identity (flattened for Qdrant payload filters) ---
     book_id: str
+    client_id: str
     subject: str
     grade: str
     board: str

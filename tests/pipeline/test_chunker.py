@@ -28,7 +28,7 @@ def settings() -> ChunkingSettings:
 
 @pytest.fixture
 def meta() -> BookMeta:
-    return BookMeta(book_id="test-sci-8", title="Science Grade 8", subject="Science", grade="8", board="FBISE", lang="en")
+    return BookMeta(book_id="test-sci-8", title="Science Grade 8", subject="Science", grade="8", board="FBISE", lang="en", client_id="test-client")
 
 
 @pytest.fixture
@@ -95,13 +95,14 @@ class TestMultiSectionChunking:
             assert c.grade == "8"
             assert c.board == "FBISE"
             assert c.lang == "en"
+            assert c.client_id == "test-client"
 
 
 class TestOversizedSplitting:
     def test_all_chunks_under_token_cap(self, counter, settings):
         long_text = " ".join(f"word{i}" for i in range(50))
         doc = Document(
-            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en"),
+            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en", client_id="test-client"),
             pages=[Page(page_no=1, source="ocr", lang="en", char_count=500, elements=[Element(type="text", content=long_text)])],
             source_path="t.pdf", extractor_name="test",
         )
@@ -152,7 +153,7 @@ class TestUrduSplitting:
 
     def test_urdu_chunking_produces_multiple_chunks(self, counter):
         doc = Document(
-            meta=BookMeta(book_id="ur-5", title="Urdu 5", subject="Urdu", grade="5", board="FBISE", lang="ur"),
+            meta=BookMeta(book_id="ur-5", title="Urdu 5", subject="Urdu", grade="5", board="FBISE", lang="ur", client_id="test-client"),
             pages=[Page(page_no=1, source="ocr", lang="ur", char_count=200, elements=[
                 Element(type="heading", content="# پہلا باب"),
                 Element(type="text", content="یہ پہلا جملہ ہے۔ یہ دوسرا جملہ ہے۔ یہ تیسرا جملہ ہے۔ یہ چوتھا جملہ ہے۔ یہ پانچواں جملہ ہے۔ یہ چھٹا جملہ ہے۔"),
@@ -164,7 +165,7 @@ class TestUrduSplitting:
 
     def test_urdu_chapter_heading_stripped(self, counter):
         doc = Document(
-            meta=BookMeta(book_id="ur-5", title="Urdu 5", subject="Urdu", grade="5", board="FBISE", lang="ur"),
+            meta=BookMeta(book_id="ur-5", title="Urdu 5", subject="Urdu", grade="5", board="FBISE", lang="ur", client_id="test-client"),
             pages=[Page(page_no=1, source="ocr", lang="ur", char_count=100, elements=[
                 Element(type="heading", content="# پہلا باب"),
                 Element(type="text", content="کچھ متن۔"),
@@ -192,7 +193,7 @@ class TestDeterminism:
     def test_different_content_different_ids(self, counter):
         def make_doc(text):
             return Document(
-                meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en"),
+                meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en", client_id="test-client"),
                 pages=[Page(page_no=1, source="ocr", lang="en", char_count=100, elements=[Element(type="text", content=text)])],
                 source_path="t.pdf", extractor_name="test",
             )
@@ -203,7 +204,7 @@ class TestDeterminism:
 class TestPageSpanning:
     def test_chunk_spanning_page_break(self, counter):
         doc = Document(
-            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en"),
+            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en", client_id="test-client"),
             pages=[
                 Page(page_no=1, source="ocr", lang="en", char_count=50, elements=[
                     Element(type="heading", content="# Chapter"),
@@ -225,7 +226,7 @@ class TestPageSpanning:
 class TestEdgeCases:
     def test_empty_figure_content_still_produces_chunk(self, counter):
         doc = Document(
-            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en"),
+            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en", client_id="test-client"),
             pages=[Page(page_no=1, source="ocr", lang="en", char_count=50, elements=[
                 Element(type="figure", content="", description=None, image_path="/figures/unknown.png"),
             ])],
@@ -238,7 +239,7 @@ class TestEdgeCases:
 
     def test_heading_without_hash_defaults_to_section(self, counter):
         doc = Document(
-            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en"),
+            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en", client_id="test-client"),
             pages=[Page(page_no=1, source="ocr", lang="en", char_count=100, elements=[
                 Element(type="heading", content="# Real Chapter"),
                 Element(type="heading", content="Just a Heading"),
@@ -262,7 +263,7 @@ class TestSupervisorRequested:
     def test_overlap_survives_and_under_budget(self, counter):
         text = " ".join(f"word{i}" for i in range(35))
         doc = Document(
-            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en"),
+            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en", client_id="test-client"),
             pages=[Page(page_no=1, source="ocr", lang="en", char_count=500, elements=[Element(type="text", content=text)])],
             source_path="t.pdf", extractor_name="test",
         )
@@ -286,7 +287,7 @@ class TestSupervisorRequested:
 class TestGapDetection:
     def test_table_between_text_elements_causes_split(self, counter):
         doc = Document(
-            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en"),
+            meta=BookMeta(book_id="t", title="T", subject="S", grade="1", board="B", lang="en", client_id="test-client"),
             pages=[Page(page_no=1, source="ocr", lang="en", char_count=200, elements=[
                 Element(type="heading", content="## Results"),
                 Element(type="text", content="The data shows the following."),
