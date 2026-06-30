@@ -43,56 +43,65 @@ class DoclingExtractor(BaseExtractor):
         self.logger = logging.getLogger(__name__)
 
     def _remove_headers_footers(self, pages: list[Page], book_id: str) -> list[Page]:
-        """Remove repeated text that appears on >threshold of pages (running headers/footers)."""
-        if len(pages) < 3:
-            return pages  # too few pages to detect repetition
+        """Remove repeated chapter headings (running headers).
+        
+        If a chapter heading (# Unit X / # Chapter X) appears on multiple pages,
+        only the first occurrence is the real heading — the rest are running headers.
+        """
+        import re
 
-        # Count how often each normalized text appears across pages
-        from collections import Counter
-        text_counts: Counter[str] = Counter()
-
-        for page in pages:
-            # Use a set so the same text on one page counts once
-            seen_on_page: set[str] = set()
-            for e in page.elements:
-                normalized = e.content.strip().lower()
-                if normalized and normalized not in seen_on_page:
-                    text_counts[normalized] += 1
-                    seen_on_page.add(normalized)
-
-        # Find texts that appear on more than threshold of pages
-        threshold = extractor_settings.header_footer_repetition_threshold
-        min_count = max(2, int(len(pages) * threshold))
-        repeated = {text for text, count in text_counts.items() if count >= min_count}
-
-        if not repeated:
-            return pages
-
-        # Remove matching elements from all pages
+        # Track which chapter headings we've already seen
+        seen_chapter_headings: set[str] = set()
         cleaned_pages: list[Page] = []
         total_dropped = 0
 
         for page in pages:
             filtered = []
             for e in page.elements:
-                if e.content.strip().lower() in repeated:
-                    total_dropped += 1
-                else:
-                    filtered.append(e)
+                # Only check chapter-level headings (# Unit/Chapter)
+                if e.type == "heading" and e.content.startswith("# "):
+                    heading_text = re.sub(r'^#+\s*', '', e.content).strip().lower()
+                    
+                    # Is this a chapter heading pattern?
+                    if re.match(r'^(unit|chapter)\s+\d+', heading_text):
+                        if heading_text in seen_chapter_headings:
+                            # Duplicate — this is a running header, drop it
+                            total_dropped += 1
+                            continue
+                        else:
+                            # First time seeing it — keep it
+                            seen_chapter_headings.add(heading_text)
+
+                filtered.append(e)
 
             cleaned_pages.append(Page(
                 page_no=page.page_no,
                 elements=filtered,
                 source=page.source,
                 lang=page.lang,
-                char_count=sum(len(e.content) for e in filtered)
+                char_count=sum(len(el.content) for el in filtered)
             ))
 
-        for text in repeated:
-            self.logger.info(f"{book_id} | Dropped repeated header/footer: '{text}'")
-        self.logger.info(f"{book_id} | Total elements dropped: {total_dropped}")
-
+        if total_dropped > 0:
+            self.logger.info(f"{book_id} | Dropped {total_dropped} running chapter headers")
+        
         return cleaned_pages
+
+    @staticmethod
+    def _classify_heading(text: str) -> str | None:
+        import re
+        stripped = text.strip()
+
+        # Chapter-level: "Unit 1: ...", "Chapter 2: ..."
+        if re.match(r'^(Unit|Chapter)\s+\d+', stripped, re.IGNORECASE):
+            return "# "
+
+        # Section-level: only X.Y pattern (e.g. "1.2 Title"), NOT X.Y.Z
+        if re.match(r'^\d+\.\d+\s', stripped) and not re.match(r'^\d+\.\d+\.\d+', stripped):
+            return "## "
+
+        # Everything else (including X.Y.Z subsections) → regular text
+        return None
 
     def extract(self, pdf_path: str, meta: BookMeta) -> Document:
         if meta.lang == "ur":
@@ -142,8 +151,12 @@ class DoclingExtractor(BaseExtractor):
                             continue
 
                         if element_type == "heading":
-                            prefix = "# " if level == 1 else "## "
-                            element = Element(type="heading", content=prefix + item.text)
+                            prefix = self._classify_heading(item.text)
+                            if prefix is None:
+                                # Reclassify as regular text
+                                element = Element(type="text", content=item.text)
+                            else:
+                                element = Element(type="heading", content=prefix + item.text)
                         elif element_type == "table":
                             md = item.export_to_markdown(doc_result)
                             element = Element(type="table", content=md)
