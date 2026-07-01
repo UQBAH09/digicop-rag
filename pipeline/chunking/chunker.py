@@ -105,7 +105,7 @@ def chunk_text_stream(
                     page_end = tagged.page_no
 
             prev_source_order = tagged.source_order
-            elem_tokens = counter.count_tokens(tagged.element.content)
+            elem_tokens = counter.count_tokens(text=tagged.element.content)
 
             if elem_tokens > settings.max_chunk_tokens:
                 logger.warning(
