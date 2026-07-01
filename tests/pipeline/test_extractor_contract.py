@@ -32,7 +32,8 @@ def test_meta() -> BookMeta:
         subject="Physics",
         grade="11",
         board="STBB",
-        lang="en"
+        lang="en",
+        client_id="test-user"
     )
 
 
@@ -130,7 +131,8 @@ class TestPageContract:
 class TestElementContract:
     """Every Element must conform to the frozen contract."""
 
-    VALID_TYPES = {"text", "heading", "table", "figure", "equation"}
+    # VALID_TYPES = {"text", "heading", "table", "figure", "equation"}
+    VALID_TYPES = {"text", "heading", "table", "equation"}
 
     def test_element_types_are_valid(self, extracted_doc):
         for page in extracted_doc.pages:
@@ -198,7 +200,8 @@ class TestUrduRefusal:
             subject="Urdu",
             grade="11",
             board="STBB",
-            lang="ur"
+            lang="ur",
+            client_id='test-user'
         )
         with pytest.raises(UnsupportedLanguageError):
             extractor.extract(TEST_PDF, urdu_meta)
