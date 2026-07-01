@@ -25,3 +25,7 @@ class ChunkingSettings(BaseSettings):
     chunk_overlap_tokens: int = 75
     context_snippet_chars: int = 200
     tokenizer_model_name: str = "BAAI/bge-m3"
+
+class PostgresSettings(BaseSettings):
+    url: str = "postgresql+asyncpg://localhost/digicop"
+    model_config = SettingsConfigDict(env_prefix="POSTGRES_", env_file=".env")

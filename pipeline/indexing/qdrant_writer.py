@@ -31,7 +31,7 @@ class QdrantWriter:
                 vectors_config=VectorParams(size=self._embedder.dim, distance=Distance.COSINE)
             )
 
-        for field in ("book_id", "subject", "grade", "lang", "chapter", "element_type"):
+        for field in ("client_id", "book_id", "subject", "grade", "lang", "chapter", "element_type"):
             self._client.create_payload_index(
                 collection_name=self._settings.collection_name,
                 field_name=field,
@@ -46,20 +46,14 @@ class QdrantWriter:
     def _build_payload(self, chunk: Chunk) -> dict:
         return {
             "chunk_id": chunk.chunk_id,
-            "chunk_index": chunk.chunk_index,
-            "content": chunk.content,
+            "client_id": chunk.client_id,
             "element_type": chunk.element_type,
             "book_id": chunk.book_id,
             "subject": chunk.subject,
             "grade": chunk.grade,
-            "board": chunk.board,
             "lang": chunk.lang,
             "chapter": chunk.chapter,
             "section": chunk.section,
-            "page_start": chunk.page_start,
-            "page_end": chunk.page_end,
-            "context_snippet": chunk.context_snippet,
-            "image_path": chunk.image_path,
         }
 
     def replace_book(self, book_id: str, chunks: list[Chunk], vectors: list[list[float]]) -> None:
